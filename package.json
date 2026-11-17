@@ -1,0 +1,55 @@
+{
+  "name": "tr-hyphen",
+  "version": "0.1.0",
+  "description": "Turkish syllabification and hyphenation following the TDK spelling rules. No dependencies.",
+  "keywords": [
+    "turkish",
+    "türkçe",
+    "hyphenation",
+    "hyphenate",
+    "syllabification",
+    "syllable",
+    "hece",
+    "heceleme",
+    "tdk"
+  ],
+  "author": "Arda Kara",
+  "license": "MIT",
+  "homepage": "https://github.com/karaarda/tr-hyphen#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/karaarda/tr-hyphen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/karaarda/tr-hyphen/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "vitest": "3.2.4"
+  }
+}
