@@ -43,13 +43,15 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "bench": "npm run build && vitest bench --run --reporter=verbose --experimental.viteModuleRunner=false",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "typescript": "5.8.3",
-    "vitest": "3.2.4"
+    "vitest": "5.1.0"
   }
 }

@@ -20,9 +20,18 @@ describe('TDK syllable structure', () => {
 });
 
 describe('TDK line breaks', () => {
-  it('leaves no single letter at the end or start of a line', () => {
-    expect(hyphenate('uçurtma')).toBe('uçurt-ma'); // not u-çurtma
-    expect(hyphenate('müdafaa')).toBe('mü-da-faa'); // müda-faa, not müdafa-a
+  it.each([
+    ['eşyalara', 2], ['ruhuna', 4], ['geçtiği', 5],
+  ])('allows the line break shown in the TDK passage for %s', (word, index) => {
+    expect(hyphenationPoints(word)).toContainEqual({ index, hyphen: true });
+  });
+
+  it.each([
+    ['uçurtma', 'u-çurt-ma', [5]],
+    ['müdafaa', 'mü-da-fa-a', [2, 4]],
+  ])('filters single-letter line breaks in %s', (word, syllables, indices) => {
+    expect(syllabify(word).join('-')).toBe(syllables);
+    expect(hyphenationPoints(word)).toEqual(indices.map((index) => ({ index, hyphen: true })));
   });
 
   it('breaks after an apostrophe without a hyphen', () => {
@@ -122,6 +131,25 @@ describe('hyphenate', () => {
     expect(hyphenate('Washington')).toBe('Washington');
     expect(hyphenate('examen')).toBe('examen');
     expect(hyphenate('Washington’dan', { apostropheBreak: '|' })).toBe('Washington’|dan');
+  });
+
+  it.each(['𐐀merhaba', 'merhaba𐐀', 'abca\u0301', 'başöğretmen'])(
+    'keeps an unsupported word intact inside punctuation (%s)', (word) => {
+      expect(hyphenationPoints(`(${word})`)).toEqual([]);
+      expect(hyphenateText(`(${word})`)).toBe(`(${word})`);
+    },
+  );
+
+  it('counts supplementary letters once while returning UTF-16 indices', () => {
+    expect(hyphenationPoints('«𐐀𐐀’de»')).toEqual([{ index: 6, hyphen: false }]);
+    expect(hyphenationPoints('«𐐀’de»')).toEqual([]);
+    expect(hyphenationPoints('🙂merhaba!')).toEqual([
+      { index: 5, hyphen: true }, { index: 7, hyphen: true },
+    ]);
+  });
+
+  it('leaves parts with multiple apostrophes intact', () => {
+    expect(hyphenateText("I'm Ankara’dan’geldim")).toBe("I'm Ankara’dan’geldim");
   });
 });
 

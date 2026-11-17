@@ -1,5 +1,5 @@
-import { isTurkishLetter, isVowel, toTurkishLowerCase } from './letters.js';
-import { syllabify } from './syllabify.js';
+import { isTurkishWord } from './letters.js';
+import { syllableBoundaries } from './syllabify.js';
 
 /*
  * Line-break rules from TDK, "Hece yapısı ve satır sonunda kelimelerin bölünmesi"
@@ -31,7 +31,7 @@ export interface HyphenateOptions extends HyphenationOptions {
 }
 
 export interface HyphenationPoint {
-  /** Index of the first character after the break. */
+  /** UTF-16 index of the first character after the break. */
   index: number;
   /** True when a hyphen is written at the line end; false for a break right after an apostrophe. */
   hyphen: boolean;
@@ -43,91 +43,100 @@ export const ZERO_WIDTH_SPACE = '​';
 const APOSTROPHES = new Set(["'", '’']);
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const WORD = /[\p{L}\p{M}\p{N}'’-]+/gu;
+const WORD_SPAN = /[\p{L}\p{M}\p{N}](?:.*[\p{L}\p{M}\p{N}])?/su;
+
+function countLettersAndDigits(text: string): number {
+  let count = 0;
+  for (const char of text) {
+    if (LETTER_OR_DIGIT.test(char)) count++;
+  }
+  return count;
+}
 
 /**
  * The places in `word` where a line may break. Breaks fall on syllable boundaries (with a hyphen)
- * or right after an apostrophe (without one). Where TDK is silent the rules are conservative, so
- * a returned break is never a wrong one:
+ * or right after an apostrophe (without one). Additional package conventions:
  * - leading and trailing punctuation is ignored;
  * - a word that already contains hyphens is divided part by part, never next to its own hyphens
  *   (a line can already break after them);
  * - no syllable contains an apostrophe: the name before it and the suffix after it are divided
  *   on their own (Ah-met’in), and a name that cannot be syllabified, such as a number (1996’da)
- *   or an abbreviation (TBMM’ye), stays whole;
+ *   or an abbreviation (TBMM’ye), stays whole. Parts with multiple apostrophes stay whole;
  * - a part with anything other than Turkish letters (digits, q, w, x, combining marks) is not
  *   divided, except at an apostrophe.
  */
 export function hyphenationPoints(word: string, options: HyphenationOptions = {}): HyphenationPoint[] {
   const minLeft = Math.max(1, options.minLeft ?? 2);
   const minRight = Math.max(1, options.minRight ?? 2);
+  if (word.length < minLeft + minRight) return [];
 
-  let start = 0;
-  let end = word.length;
-  while (start < end && !LETTER_OR_DIGIT.test(word[start])) start++;
-  while (end > start && !LETTER_OR_DIGIT.test(word[end - 1])) end--;
+  // Keep combining marks and supplementary letters in the span so validation can see them.
+  const span = WORD_SPAN.exec(word);
+  if (!span) return [];
+  const start = span.index;
+  const end = start + span[0].length;
 
   const points: HyphenationPoint[] = [];
   let partStart = start;
   for (let i = start; i <= end; i++) {
-    if (i === end || word[i] === '-') {
-      const count = (from: number, to: number) => Array.from(word.slice(from, to)).filter((c) => LETTER_OR_DIGIT.test(c)).length;
-      for (const point of partPoints(word, partStart, i)) {
-        if (count(partStart, point.index) >= minLeft && count(point.index, i) >= minRight) points.push(point);
-      }
-      partStart = i + 1;
-    }
+    if (i < end && word[i] !== '-') continue;
+    const part = word.slice(partStart, i);
+    appendPartPoints(points, part, partStart, minLeft, minRight);
+    partStart = i + 1;
   }
   return points;
 }
 
-function isTurkishWord(text: string): boolean {
-  return text.length > 0 && Array.from(text).every(isTurkishLetter);
-}
-
-function hasVowel(text: string): boolean {
-  return Array.from(text).some((c) => isVowel(toTurkishLowerCase(c)));
-}
-
-/** Offsets of the syllable boundaries inside `text`. */
-function boundaries(text: string): number[] {
-  const result: number[] = [];
-  let offset = 0;
-  const syllables = syllabify(text);
-  for (let i = 0; i < syllables.length - 1; i++) {
-    offset += syllables[i].length;
-    result.push(offset);
+function appendPartPoints(
+  points: HyphenationPoint[], part: string, start: number, minLeft: number, minRight: number,
+): void {
+  if (part.length < minLeft + minRight) return;
+  if (isTurkishWord(part)) {
+    // Every Turkish letter in this part occupies one UTF-16 code unit.
+    for (const index of syllableBoundaries(part)) {
+      if (index >= minLeft && part.length - index >= minRight) {
+        points.push({ index: start + index, hyphen: true });
+      }
+    }
+    return;
   }
-  return result;
+
+  const candidates = apostrophePoints(part);
+  if (candidates.length === 0) return;
+  const total = countLettersAndDigits(part);
+  let left = 0;
+  let cursor = 0;
+  for (const point of candidates) {
+    left += countLettersAndDigits(part.slice(cursor, point.index));
+    if (left >= minLeft && total - left >= minRight) {
+      points.push({ index: start + point.index, hyphen: point.hyphen });
+    }
+    cursor = point.index;
+  }
 }
 
-/** Every candidate break in word[start, end), before the minimum-length filter. */
-function partPoints(word: string, start: number, end: number): HyphenationPoint[] {
+function apostrophePoints(part: string): HyphenationPoint[] {
   let apostrophe = -1;
-  for (let i = start; i < end; i++) {
-    if (APOSTROPHES.has(word[i])) {
+  for (let i = 0; i < part.length; i++) {
+    if (APOSTROPHES.has(part[i])) {
+      if (apostrophe >= 0) return [];
       apostrophe = i;
-      break;
     }
   }
-
-  if (apostrophe < 0) {
-    const text = word.slice(start, end);
-    if (!isTurkishWord(text)) return [];
-    return boundaries(text).map((b) => ({ index: start + b, hyphen: true }));
-  }
+  if (apostrophe < 0) return [];
 
   // No syllable contains the apostrophe: the name and the suffix are syllabified on their own
   // (Ahmet’in is Ah-met’in, never Ah-me-t’in), and the line may always break after it.
   // A name that cannot be syllabified (1996, TBMM, Washington) stays whole.
-  const name = word.slice(start, apostrophe);
-  const suffix = word.slice(apostrophe + 1, end);
+  const name = part.slice(0, apostrophe);
+  const suffix = part.slice(apostrophe + 1);
   const points: HyphenationPoint[] = [];
-  if (isTurkishWord(name) && hasVowel(name)) {
-    for (const b of boundaries(name)) points.push({ index: start + b, hyphen: true });
+  if (isTurkishWord(name)) {
+    for (const index of syllableBoundaries(name)) points.push({ index, hyphen: true });
   }
   if (name.length > 0 && suffix.length > 0) points.push({ index: apostrophe + 1, hyphen: false });
   if (isTurkishWord(suffix)) {
-    for (const b of boundaries(suffix)) points.push({ index: apostrophe + 1 + b, hyphen: true });
+    for (const index of syllableBoundaries(suffix)) points.push({ index: apostrophe + 1 + index, hyphen: true });
   }
   return points;
 }
@@ -156,5 +165,6 @@ export function hyphenate(word: string, options: HyphenateOptions = {}): string 
 export function hyphenateText(text: string, options: HyphenateOptions = {}): string {
   const separator = options.separator ?? SOFT_HYPHEN;
   const apostropheBreak = options.apostropheBreak ?? ZERO_WIDTH_SPACE;
-  return text.replace(WORD, (word) => hyphenate(word, { ...options, separator, apostropheBreak }));
+  const wordOptions = { ...options, separator, apostropheBreak };
+  return text.replace(WORD, (word) => hyphenate(word, wordOptions));
 }

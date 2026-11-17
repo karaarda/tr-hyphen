@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22, 24]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -20,4 +20,19 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+      - uses: actions/setup-node@v7
+        if: matrix.node == 24
+        with:
+          node-version: 18
+      - name: Import the packed package on Node 18
+        if: matrix.node == 24
+        run: |
+          mkdir "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          npm install --offline --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/tr-hyphen-*.tgz
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { hyphenate } from 'tr-hyphen';
+          assert.equal(hyphenate('Türkçe'), 'Türk-çe');
+          JS
