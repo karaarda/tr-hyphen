@@ -48,6 +48,7 @@
     "test": "vitest run",
     "bench": "npm run build && vitest bench --run --reporter=verbose --experimental.viteModuleRunner=false",
     "prepack": "npm run build",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "devDependencies": {
